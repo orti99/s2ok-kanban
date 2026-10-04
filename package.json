@@ -1,0 +1,22 @@
+{
+  "name": "s2ok-kanban",
+  "version": "0.1.0",
+  "description": "Small self-hosted kanban board with login, projects, GitHub links and an MCP endpoint for Claude.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --no-warnings=ExperimentalWarning src/server.js",
+    "dev": "node --no-warnings=ExperimentalWarning --watch src/server.js",
+    "test": "node --no-warnings=ExperimentalWarning --test \"test/**/*.test.js\"",
+    "user:add": "node --no-warnings=ExperimentalWarning scripts/add-user.js",
+    "token:create": "node --no-warnings=ExperimentalWarning scripts/create-token.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.0",
+    "express": "^5.2.1",
+    "zod": "^3.25.0"
+  }
+}

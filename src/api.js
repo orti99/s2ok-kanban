@@ -36,6 +36,48 @@ api.get('/me', (req, res) => {
 // Everything below requires a user (cookie session or Bearer token).
 api.use(auth.requireUser);
 
+// ---- Account / user management ----
+
+api.post('/me/password', (req, res) => {
+  if (req.user.via === 'token') return res.status(403).json({ error: 'Change passwords from the browser session' });
+  const { current, password } = req.body ?? {};
+  if (!auth.authenticate(req.user.username, current)) return res.status(400).json({ error: 'Current password is wrong' });
+  try {
+    auth.setPassword(req.user.id, password);
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
+  // setPassword logs out every session, including this one: issue a fresh one.
+  const s = auth.createSession(req.user.id);
+  res.set('Set-Cookie', auth.sessionCookie(s.id, s.expires));
+  res.json({ ok: true });
+});
+
+api.get('/users', auth.requireAdmin, (req, res) => res.json({ users: auth.listUsers() }));
+api.post('/users', auth.requireAdmin, (req, res) => {
+  const { username, display_name, is_admin } = req.body ?? {};
+  const password = auth.generatePassword();
+  try {
+    const user = auth.createUser({ username, password, displayName: display_name, isAdmin: !!is_admin });
+    res.status(201).json({ user, password, users: auth.listUsers() });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+api.post('/users/:id/reset-password', auth.requireAdmin, (req, res) => {
+  const user = auth.getUserById(Number(req.params.id));
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const password = auth.generatePassword();
+  auth.setPassword(user.id, password);
+  res.json({ user, password });
+});
+api.delete('/users/:id', auth.requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  if (id === req.user.id) return res.status(400).json({ error: 'You cannot delete yourself' });
+  auth.deleteUser(id);
+  res.json({ users: auth.listUsers() });
+});
+
 api.get('/tokens', (req, res) => res.json({ tokens: auth.listApiTokens(req.user.id) }));
 api.post('/tokens', (req, res) => {
   if (req.user.via === 'token') return res.status(403).json({ error: 'Create tokens from the browser session' });

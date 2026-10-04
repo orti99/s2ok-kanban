@@ -6,7 +6,8 @@ pick up tasks, document what it did, and link the pull request for you to merge.
 
 ## Features
 
-- Login required (username/password, scrypt-hashed, cookie sessions, login rate limit)
+- Login required (username/password, scrypt-hashed, cookie sessions, login rate limit). Admin-managed
+  accounts: admins add users and reset passwords in the UI, random passwords are shown once.
 - Projects (seeded: Doggl, S2OK Website, CoverUp) with a GitHub repo and a local code path each
 - Standard lanes: Backlog → To Do → In Progress → Review → Done, drag and drop
 - Tasks with priority, assignee, branch, worklog (notes + automatic status history)
@@ -21,9 +22,13 @@ pick up tasks, document what it did, and link the pull request for you to merge.
 ```bash
 npm install
 cp .env.example .env            # optional; defaults work for local use
-npm run user:add -- yourname    # prompts for a password
 npm start                       # http://127.0.0.1:3000
 ```
+
+On the very first start (empty database) the accounts in `BOOTSTRAP_USERS` are created, by default
+`sebastian` (admin) and `sina`, each with a random password printed to the console **once**. Log in,
+change your password under **Password**, and manage accounts under **Users** (admins only).
+`npm run user:add -- --admin --random name` does the same from the CLI.
 
 Data lives in `./data/kanban.sqlite` (back it up by copying the file).
 
@@ -51,7 +56,7 @@ Data lives in `./data/kanban.sqlite` (back it up by copying the file).
 | Claude starts | `claim_task` | lane = In Progress, worklog entry |
 | Claude notes progress | `add_worklog` | worklog entry (author: claude) |
 | Claude finishes | `complete_task` | summary in worklog, branch + PR linked, lane = Review |
-| You review & merge the PR | – | move to Done (badge turns *merged*) |
+| You review & merge the PR | – | badge turns *merged*; the task moves to Done automatically (see below) |
 
 Other tools: `list_projects`, `list_tasks`, `get_claude_queue`, `get_task`, `create_task`,
 `update_task`, `move_task`, `link_github`.
@@ -62,25 +67,42 @@ that checkout, so it has the code, the project's `CLAUDE.md`, and git. The MCP s
 task tracker. That also means a cloud Claude (claude.ai) connected to the board can *plan and triage*
 tasks but cannot *do* code work unless it also has the repo (e.g. via Claude Code on the web).
 
-## GitHub state badges
+## GitHub: repos, badges, auto-close
 
-Set `GITHUB_TOKEN` in `.env` (a fine-grained token with read access to pull requests and issues on the
-company repos). The board refreshes link states when a board loads, at most every 10 minutes per link.
-Without a token, public repos still work within GitHub's anonymous rate limit.
+Each project has a **GitHub repository** (`owner/repo`) in *Project settings*. With it set, you can link
+PRs and issues by number (`#42`), and Claude's `complete_task` can pass a bare number too. Links with a
+full URL can point at any repository.
 
-## Putting it on the internet later
+The board asks GitHub's API for the state of every linked PR/issue (open, draft, merged, closed) and shows
+it as a badge on the card. When a linked PR becomes *merged* and the task is in Review (or In Progress),
+the task moves to Done by itself with a worklog entry. This check runs each time someone opens the board,
+at most every 10 minutes per link, so a merge shows up on the next page load.
 
-The app is a single Node process listening on `127.0.0.1`. To expose it:
+For **private repositories GitHub refuses anonymous API calls**, so the board needs a token to read
+them: on GitHub go to *Settings → Developer settings → Personal access tokens → Fine-grained*, create one
+with read-only access to *Pull requests* and *Issues* on the company repos, and put it in `GITHUB_TOKEN`
+(`.env` or `docker-compose.yml`). Public repos work without one, within GitHub's low anonymous rate limit.
 
-1. Put it behind an HTTPS reverse proxy (Caddy is the least work: `reverse_proxy 127.0.0.1:3000`),
-   or a Cloudflare Tunnel / Tailscale Funnel if you don't want to open ports.
-2. Set `BEHIND_PROXY=1` (secure cookies, trust `X-Forwarded-*`) and `HOST=0.0.0.0` if the proxy runs
-   elsewhere.
-3. Keep the SQLite file on persistent storage and back it up.
-4. Rotate API tokens now and then; they are the only credential Claude holds.
+## Synology NAS (Docker) with your own domain
 
-A `systemd` unit or `pm2` keeps it running. Docker is not required but trivial (`node:22-slim`, copy the
-repo, `npm ci --omit=dev`, `npm start`).
+`Dockerfile` and `docker-compose.yml` are included. On the NAS:
+
+1. Copy the repo to a shared folder (e.g. `/volume1/docker/s2ok-kanban`).
+2. *Container Manager → Project → Create*, pick that folder, it uses `docker-compose.yml`. Edit
+   `GITHUB_TOKEN` there if you want badges for private repos. The database is stored in `./data` next to
+   the compose file; back that folder up.
+3. First start: open the container log, copy the two generated passwords.
+4. DNS: point `kanban.your-domain.tld` at the NAS (DDNS or a fixed IP), forward port 443 on the router.
+5. *DSM → Control Panel → Login Portal → Advanced → Reverse Proxy*: source `https://kanban.your-domain.tld`
+   port 443 → destination `http://localhost:3000`. Under *Security → Certificate* request a Let's Encrypt
+   certificate for that hostname and assign it to the reverse-proxy entry.
+6. Register the MCP server in Claude Code with the public URL
+   (`claude mcp add --transport http --scope user kanban https://kanban.your-domain.tld/mcp --header "Authorization: Bearer kb_…"`).
+
+The container runs with `BEHIND_PROXY=1`, which turns on secure cookies and trusts the proxy's
+`X-Forwarded-*` headers. Do not expose port 3000 directly to the internet; only the reverse proxy should
+reach it. API tokens are the only credential Claude holds, revoke them under **Claude / MCP** if a laptop
+goes missing.
 
 ## Development
 
@@ -92,10 +114,8 @@ npm test       # API + MCP tests (node:test, in-memory SQLite)
 Layout: `src/server.js` (HTTP), `src/api.js` (REST), `src/mcp/server.js` (MCP tools), `src/store.js`
 (domain logic shared by both), `src/auth.js`, `src/db.js` (schema), `src/public/` (frontend).
 
-## Open questions
+## Known limits
 
-- Users: admin-created via CLI only today. Self-registration, password reset, roles?
-- Should the board stay a tracker that Claude Code pulls from, or also run Claude server-side?
-- GitHub write access (create issues/PRs from the board, webhook on merge) or read-only badges?
-- Which GitHub org/repos per project, and who owns the token the board uses?
-- Live updates: last write wins, no push to other browsers. Polling or SSE if several people work at once.
+- No live updates between browsers: reload to see what the other person (or Claude) did. Last write wins.
+- GitHub state is polled on page load, not pushed; a webhook would make auto-close instant.
+- No 2FA. Passwords are at least 8 characters; login is rate-limited per IP.

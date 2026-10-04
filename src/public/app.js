@@ -112,6 +112,8 @@
       h('div', { class: 'spacer' }),
       h('span', { class: 'muted' }, state.user.display_name),
       h('button', { class: 'small', onclick: openTokensModal }, 'Claude / MCP'),
+      state.user.is_admin && h('button', { class: 'small', onclick: openUsersModal }, 'Users'),
+      h('button', { class: 'small', onclick: openPasswordModal }, 'Password'),
       h('button', { class: 'small', onclick: async () => { await api('POST', '/logout'); state.user = null; render(); } }, 'Log out'),
     );
     const board = h('div', { class: 'board' }, state.lanes.map(viewLane));
@@ -288,6 +290,54 @@
           h('button', { class: 'small danger', onclick: async () => { tokens = (await api('DELETE', `/tokens/${t.id}`)).tokens; render(); } }, 'Revoke')))),
         fresh && h('div', {}, h('p', {}, 'New token (shown once):'), h('pre', {}, fresh)),
         h('div', { class: 'row' }, nameInput, h('button', { class: 'primary', onclick: async () => { const r = await api('POST', '/tokens', { name: nameInput.value || 'claude' }); tokens = r.tokens; fresh = r.token; render(); } }, 'Create token')),
+      );
+    };
+    render();
+  }
+
+  // ---------- users (admin) ----------
+  async function openUsersModal() {
+    let users = (await api('GET', '/users')).users;
+    let reveal = null; // { username, password }
+    state.modal = () => {
+      const err = h('div', { class: 'error' });
+      const name = h('input', { placeholder: 'username', style: 'width:160px' });
+      const display = h('input', { placeholder: 'display name', style: 'width:160px' });
+      const admin = h('input', { type: 'checkbox', style: 'width:auto' });
+      return backdrop(
+        h('div', { class: 'row' }, h('h2', { class: 'grow' }, 'Users'), h('button', { class: 'small', onclick: closeModal }, '✕')),
+        h('ul', { class: 'tokens' }, users.map((u) => h('li', {},
+          h('span', { class: 'grow' }, u.username, u.is_admin && ' ', u.is_admin && h('span', { class: 'badge' }, 'admin')),
+          h('button', { class: 'small', onclick: async () => { try { const r = await api('POST', `/users/${u.id}/reset-password`, {}); reveal = { username: u.username, password: r.password }; render(); } catch (ex) { err.textContent = ex.message; } } }, 'Reset password'),
+          u.id !== state.user.id && h('button', { class: 'small danger', onclick: async () => { if (confirm(`Delete user ${u.username}?`)) { users = (await api('DELETE', `/users/${u.id}`)).users; render(); } } }, 'Delete')))),
+        reveal && h('div', {}, h('p', {}, `New password for ${reveal.username} (shown once):`), h('pre', {}, reveal.password)),
+        h('label', {}, 'Add user (a random password is generated and shown once)'),
+        h('div', { class: 'row' }, name, display, h('label', { style: 'margin:0', class: 'row' }, admin, 'admin'),
+          h('button', { class: 'primary', onclick: async () => { err.textContent = ''; try { const r = await api('POST', '/users', { username: name.value, display_name: display.value, is_admin: admin.checked }); users = r.users; reveal = { username: r.user.username, password: r.password }; render(); } catch (ex) { err.textContent = ex.message; } } }, 'Add')),
+        err,
+      );
+    };
+    render();
+  }
+
+  // ---------- change own password ----------
+  function openPasswordModal() {
+    state.modal = () => {
+      const err = h('div', { class: 'error' });
+      const current = h('input', { type: 'password', autocomplete: 'current-password' });
+      const next = h('input', { type: 'password', autocomplete: 'new-password' });
+      const again = h('input', { type: 'password', autocomplete: 'new-password' });
+      return backdrop(
+        h('div', { class: 'row' }, h('h2', { class: 'grow' }, 'Change password'), h('button', { class: 'small', onclick: closeModal }, '✕')),
+        h('label', {}, 'Current password'), current,
+        h('label', {}, 'New password (min. 8 characters)'), next,
+        h('label', {}, 'Repeat new password'), again,
+        err,
+        h('div', { class: 'actions' }, h('button', { class: 'primary', onclick: async () => {
+          err.textContent = '';
+          if (next.value !== again.value) { err.textContent = 'Passwords do not match'; return; }
+          try { await api('POST', '/me/password', { current: current.value, password: next.value }); closeModal(); } catch (ex) { err.textContent = ex.message; }
+        } }, 'Change')),
       );
     };
     render();

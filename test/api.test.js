@@ -119,3 +119,39 @@ test('give to claude, then claude claims and completes via MCP', async () => {
   const bad = await mcp('tools/call', { name: 'get_task', arguments: { id: 99999 } });
   assert.equal(bad.result.isError, true);
 });
+
+test('admin user management and password change', async () => {
+  // alice was created without admin → forbidden
+  assert.equal((await call('GET', '/api/users')).status, 403);
+  const { createUser: mk } = await import('../src/auth.js');
+  mk({ username: 'sebastian', password: 'adminpass1', isAdmin: true });
+  const login = await call('POST', '/api/login', { username: 'sebastian', password: 'adminpass1' });
+  const adminCookie = login.res.headers.get('set-cookie').split(';')[0];
+  const H = { cookie: adminCookie };
+
+  const created = await call('POST', '/api/users', { username: 'sina', display_name: 'Sina' }, H);
+  assert.equal(created.status, 201);
+  assert.equal(created.data.password.length, 16);
+  assert.equal((await call('POST', '/api/login', { username: 'sina', password: created.data.password })).status, 200);
+
+  const reset = await call('POST', `/api/users/${created.data.user.id}/reset-password`, {}, H);
+  assert.notEqual(reset.data.password, created.data.password);
+  assert.equal((await call('POST', '/api/login', { username: 'sina', password: created.data.password })).status, 401);
+
+  assert.equal((await call('POST', '/api/me/password', { current: 'wrong', password: 'newpassword1' }, H)).status, 400);
+  const ch = await call('POST', '/api/me/password', { current: 'adminpass1', password: 'newpassword1' }, H);
+  assert.equal(ch.status, 200);
+  assert.equal((await call('POST', '/api/login', { username: 'sebastian', password: 'newpassword1' })).status, 200);
+});
+
+test('merged PR closes a task in review automatically', async () => {
+  const { updateLinkState, getTask: gt } = await import('../src/store.js');
+  const t = (await call('POST', '/api/tasks', { project: 'doggl', title: 'Auto close', lane: 'review' })).data.task;
+  const withLink = (await call('POST', `/api/tasks/${t.id}/links`, { url: 'https://github.com/orti99/doggl/pull/99' })).data.task;
+  updateLinkState(withLink.links[0].id, { kind: 'pr', title: 'x', state: 'open' });
+  assert.equal(gt(t.id).lane, 'review');
+  updateLinkState(withLink.links[0].id, { kind: 'pr', title: 'x', state: 'merged' });
+  const after = gt(t.id);
+  assert.equal(after.lane, 'done');
+  assert.ok(after.worklog.some((w) => w.author === 'github'));
+});

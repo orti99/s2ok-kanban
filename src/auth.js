@@ -19,20 +19,65 @@ export function verifyPassword(password, stored) {
   return crypto.timingSafeEqual(actual, expected);
 }
 
-export function createUser({ username, password, displayName }) {
+export function generatePassword() {
+  // 16 chars from an unambiguous alphabet (no 0/O, 1/l/I).
+  const alphabet = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = crypto.randomBytes(16);
+  return [...bytes].map((b) => alphabet[b % alphabet.length]).join('');
+}
+
+export function createUser({ username, password, displayName, isAdmin = false }) {
   const db = getDb();
   if (!username || !/^[a-z0-9._-]{2,40}$/i.test(username)) {
     throw new Error('Username must be 2-40 chars: letters, digits, . _ -');
   }
   if (!password || password.length < 8) throw new Error('Password must be at least 8 characters');
-  const info = db
-    .prepare('INSERT INTO users (username, password_hash, display_name) VALUES (?, ?, ?)')
-    .run(username, hashPassword(password), displayName || username);
+  let info;
+  try {
+    info = db
+      .prepare('INSERT INTO users (username, password_hash, display_name, is_admin) VALUES (?, ?, ?, ?)')
+      .run(username, hashPassword(password), displayName || username, isAdmin ? 1 : 0);
+  } catch (e) {
+    if (String(e.message).includes('UNIQUE')) throw new Error(`User ${username} already exists`);
+    throw e;
+  }
   return getUserById(info.lastInsertRowid);
 }
 
+const USER_COLS = 'id, username, display_name, is_admin, created_at';
+const rowUser = (r) => (r ? { ...r, is_admin: !!r.is_admin } : null);
+
 export function getUserById(id) {
-  return getDb().prepare('SELECT id, username, display_name, created_at FROM users WHERE id = ?').get(id) ?? null;
+  return rowUser(getDb().prepare(`SELECT ${USER_COLS} FROM users WHERE id = ?`).get(id));
+}
+
+export function listUsers() {
+  return getDb().prepare(`SELECT ${USER_COLS} FROM users ORDER BY username`).all().map(rowUser);
+}
+
+export function setPassword(userId, password) {
+  if (!password || password.length < 8) throw new Error('Password must be at least 8 characters');
+  getDb().prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), userId);
+  // Log every other session out.
+  getDb().prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+}
+
+export function deleteUser(userId) {
+  return getDb().prepare('DELETE FROM users WHERE id = ?').run(userId).changes > 0;
+}
+
+/** First start: create the users named in BOOTSTRAP_USERS with random passwords, printed once. */
+export function bootstrapUsers(spec) {
+  const db = getDb();
+  if (db.prepare('SELECT COUNT(*) AS n FROM users').get().n > 0) return [];
+  const created = [];
+  for (const entry of String(spec ?? '').split(',').map((s) => s.trim()).filter(Boolean)) {
+    const [username, flag] = entry.split(':');
+    const password = generatePassword();
+    createUser({ username, password, displayName: username[0].toUpperCase() + username.slice(1), isAdmin: flag === 'admin' });
+    created.push({ username, password });
+  }
+  return created;
 }
 
 export function authenticate(username, password) {
@@ -60,7 +105,7 @@ export function getSessionUser(sessionId) {
   const db = getDb();
   const row = db
     .prepare(
-      `SELECT u.id, u.username, u.display_name, s.expires_at FROM sessions s
+      `SELECT u.id, u.username, u.display_name, u.is_admin, s.expires_at FROM sessions s
        JOIN users u ON u.id = s.user_id WHERE s.id = ?`,
     )
     .get(sessionId);
@@ -69,7 +114,7 @@ export function getSessionUser(sessionId) {
     db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
     return null;
   }
-  return { id: row.id, username: row.username, display_name: row.display_name };
+  return { id: row.id, username: row.username, display_name: row.display_name, is_admin: !!row.is_admin };
 }
 
 export function destroySession(sessionId) {
@@ -105,13 +150,13 @@ export function getTokenUser(token) {
   const db = getDb();
   const row = db
     .prepare(
-      `SELECT u.id, u.username, u.display_name, t.id AS token_id FROM api_tokens t
+      `SELECT u.id, u.username, u.display_name, u.is_admin, t.id AS token_id FROM api_tokens t
        JOIN users u ON u.id = t.user_id WHERE t.token_hash = ?`,
     )
     .get(tokenHash(token));
   if (!row) return null;
   db.prepare('UPDATE api_tokens SET last_used_at = ? WHERE id = ?').run(now(), row.token_id);
-  return { id: row.id, username: row.username, display_name: row.display_name, via: 'token' };
+  return { id: row.id, username: row.username, display_name: row.display_name, is_admin: !!row.is_admin, via: 'token' };
 }
 
 // ---- Express helpers ----
@@ -160,6 +205,12 @@ export function attachUser(req, _res, next) {
 
 export function requireUser(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+  next();
+}
+
+export function requireAdmin(req, res, next) {
+  if (!req.user?.is_admin) return res.status(403).json({ error: 'Admin only' });
+  if (req.user.via === 'token') return res.status(403).json({ error: 'User management is only available from the browser' });
   next();
 }
 

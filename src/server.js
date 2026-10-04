@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { config } from './config.js';
 import { openDb } from './db.js';
-import { attachUser } from './auth.js';
+import { attachUser, bootstrapUsers } from './auth.js';
 import { api } from './api.js';
 import { handleMcpRequest } from './mcp/server.js';
 
@@ -35,6 +35,12 @@ export function createApp() {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   openDb();
+  const created = bootstrapUsers(config.bootstrapUsers);
+  if (created.length) {
+    console.log('\nNo users existed, created initial accounts (passwords shown once, change them after login):');
+    for (const u of created) console.log(`  ${u.username.padEnd(12)} ${u.password}`);
+    console.log('');
+  }
   const app = createApp();
   app.listen(config.port, config.host, () => {
     console.log(`s2ok-kanban listening on http://${config.host}:${config.port}  (data: ${config.dataDir})`);

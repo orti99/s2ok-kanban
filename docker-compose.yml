@@ -1,0 +1,20 @@
+# Synology NAS: Container Manager → Project → create from this file (or `docker compose up -d`).
+# Then DSM → Control Panel → Login Portal → Advanced → Reverse Proxy:
+#   source https://kanban.your-domain.tld:443  →  destination http://localhost:3000
+# and issue a Let's Encrypt certificate for that hostname under Security → Certificate.
+services:
+  kanban:
+    build: .
+    image: s2ok-kanban
+    container_name: s2ok-kanban
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/data
+    environment:
+      BEHIND_PROXY: "1"
+      # Created on first start if the database is empty; passwords are printed to the container log once.
+      BOOTSTRAP_USERS: "sebastian:admin,sina"
+      # Optional: GitHub personal access token so cards show open / merged / closed and tasks close on merge.
+      GITHUB_TOKEN: ""

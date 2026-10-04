@@ -274,10 +274,30 @@ export function removeLink(taskId, linkId) {
   if (!res.changes) throw new HttpError(404, 'Link not found');
 }
 
+/**
+ * Store a refreshed GitHub state. When a linked PR turns out merged and every other PR on the task
+ * is merged or closed too, a task sitting in review/in_progress is moved to done automatically.
+ */
 export function updateLinkState(linkId, { kind, title, state }) {
-  getDb()
-    .prepare('UPDATE task_links SET kind = COALESCE(?, kind), title = COALESCE(?, title), state = ?, state_checked_at = ? WHERE id = ?')
-    .run(kind ?? null, title ?? null, state ?? null, now(), linkId);
+  const db = getDb();
+  const link = db.prepare('SELECT * FROM task_links WHERE id = ?').get(Number(linkId));
+  if (!link) return;
+  db.prepare('UPDATE task_links SET kind = COALESCE(?, kind), title = COALESCE(?, title), state = ?, state_checked_at = ? WHERE id = ?').run(
+    kind ?? null,
+    title ?? null,
+    state ?? null,
+    now(),
+    link.id,
+  );
+  if (state === 'merged' && link.state !== 'merged') {
+    const task = getTask(link.task_id);
+    const prs = task.links.filter((l) => l.kind === 'pr');
+    const allSettled = prs.every((l) => l.state === 'merged' || l.state === 'closed');
+    if (['review', 'in_progress'].includes(task.lane) && allSettled) {
+      moveTask(task.id, { lane: 'done' }, { username: 'github' });
+      addWorklog(task.id, { author: 'github', kind: 'status', body: `PR #${link.number} merged, task closed automatically` });
+    }
+  }
 }
 
 export function listGithubLinks({ staleMinutes = 0 } = {}) {

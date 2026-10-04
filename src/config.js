@@ -8,5 +8,7 @@ export const config = {
   dataDir: path.resolve(env.DATA_DIR ?? './data'),
   behindProxy: env.BEHIND_PROXY === '1' || env.BEHIND_PROXY === 'true',
   githubToken: env.GITHUB_TOKEN || null,
+  // Users created on first start when the users table is empty. "name:admin" marks an admin.
+  bootstrapUsers: env.BOOTSTRAP_USERS ?? 'sebastian:admin,sina',
   sessionTtlMs: 1000 * 60 * 60 * 24 * 14, // 14 days
 };

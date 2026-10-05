@@ -212,7 +212,15 @@ export function buildMcpServer(user) {
 /** Express handler for POST/GET/DELETE /mcp (stateless: one server instance per request). */
 export async function handleMcpRequest(req, res) {
   if (!req.user) {
-    res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Authentication required: Authorization: Bearer <api token>' }, id: null });
+    const header = req.get('authorization') ?? '';
+    let reason;
+    if (!header) reason = 'no Authorization header reached the server (check the client config, and that no proxy or redirect strips it)';
+    else if (!header.startsWith('Bearer ')) reason = 'Authorization header is not "Bearer <token>"';
+    else if (!header.slice(7).trim().startsWith('kb_')) reason = 'token does not look like a board token (expected kb_…)';
+    else reason = 'token is not known to this board instance (revoked, mistyped, or created on another instance)';
+    console.warn(`[mcp] 401 from ${req.ip}: ${reason}`);
+    res.set('WWW-Authenticate', 'Bearer realm="s2ok-kanban"');
+    res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: `Authentication failed: ${reason}` }, id: null });
     return;
   }
   if (req.method !== 'POST') {

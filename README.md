@@ -48,6 +48,25 @@ Data lives in `./data/kanban.sqlite` (back it up by copying the file).
    `/kanban` picks the next task assigned to Claude for that project (matched via the project's
    *local path*) and `/kanban 42` works a specific task.
 
+### If Claude reports an authentication problem
+
+Test the token and the endpoint directly, from the same machine Claude Code runs on:
+
+```bash
+curl -i -H "Authorization: Bearer kb_…" https://kanban.your-domain.tld/api/me
+```
+
+- `200` with your user → token and server are fine; the problem is the client config. Run
+  `claude mcp get kanban` and check the URL ends in `/mcp` and the header is exactly
+  `Authorization: Bearer kb_…`. Then `claude mcp remove kanban` and add it again.
+- `401` → the token is not known to this instance. Tokens are per instance (local vs. NAS) and are
+  listed under **Claude / MCP**; create a new one there.
+- `301`/`302`/`308` → you used `http://` and the proxy redirects to `https://`. Clients drop the
+  Authorization header on that redirect. Register the `https://` URL.
+- `000`/connection error → the hostname or port isn't reachable from that machine.
+
+The container log shows every rejected MCP call with the reason (`[mcp] 401 …`).
+
 ### How Claude works a task
 
 | Step | MCP tool | Board effect |

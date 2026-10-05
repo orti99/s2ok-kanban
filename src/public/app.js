@@ -123,7 +123,7 @@
   function viewLane(lane) {
     const tasks = state.tasks.filter((t) => t.lane === lane.id);
     const el = h('div', { class: 'lane', 'data-lane': lane.id,
-      ondragover: (e) => { e.preventDefault(); el.classList.add('over'); },
+      ondragover: (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; el.classList.add('over'); },
       ondragleave: () => el.classList.remove('over'),
       ondrop: (e) => { e.preventDefault(); el.classList.remove('over'); onDrop(e, lane.id, el); },
     },
@@ -135,8 +135,9 @@
   }
 
   function viewCard(t) {
-    const el = h('div', { class: `card prio-${t.priority}`, draggable: true, 'data-id': t.id,
-      ondragstart: (e) => { e.dataTransfer.setData('text/plain', String(t.id)); el.classList.add('dragging'); },
+    // Note: draggable is an enumerated attribute; it must be the string "true" (an empty value means "auto").
+    const el = h('div', { class: `card prio-${t.priority}`, draggable: 'true', 'data-id': t.id,
+      ondragstart: (e) => { e.dataTransfer.setData('text/plain', String(t.id)); e.dataTransfer.effectAllowed = 'move'; el.classList.add('dragging'); },
       ondragend: () => el.classList.remove('dragging'),
       onclick: () => openTaskModal(t.id),
     },

@@ -87,21 +87,23 @@ with read-only access to *Pull requests* and *Issues* on the company repos, and 
 
 `Dockerfile` and `docker-compose.yml` are included. On the NAS:
 
-1. Copy the repo to a shared folder (e.g. `/volume1/docker/s2ok-kanban`).
-2. *Container Manager → Project → Create*, pick that folder, it uses `docker-compose.yml`. Edit
-   `GITHUB_TOKEN` there if you want badges for private repos. The database is stored in `./data` next to
-   the compose file; back that folder up.
-3. First start: open the container log, copy the two generated passwords.
-4. DNS: point `kanban.your-domain.tld` at the NAS (DDNS or a fixed IP), forward port 443 on the router.
-5. *DSM → Control Panel → Login Portal → Advanced → Reverse Proxy*: source `https://kanban.your-domain.tld`
-   port 443 → destination `http://localhost:3000`. Under *Security → Certificate* request a Let's Encrypt
-   certificate for that hostname and assign it to the reverse-proxy entry.
-6. Register the MCP server in Claude Code with the public URL
+1. Copy the repo to a shared folder (e.g. `/volume1/docker/s2ok-kanban`) and create a `data` folder in it.
+2. Copy `.env.example` to `.env` and set `PUID`/`PGID` to your NAS user (run `id` over SSH; typically
+   `1026` and `100`). The container runs as that user so it can write the mounted `data` folder. Without
+   this the log shows `unable to open database file`. Set `KANBAN_PORT` if 3000 is taken on the NAS, and
+   `GITHUB_TOKEN` if you want badges for private repos.
+3. *Container Manager → Project → Create*, pick that folder, it uses `docker-compose.yml` and `.env`.
+   The database is stored in `./data`; back that folder up.
+4. First start: open the container log, copy the two generated passwords.
+5. DNS: point `kanban.your-domain.tld` at the NAS (DDNS or a fixed IP), forward port 443 on the router.
+6. *DSM → Control Panel → Login Portal → Advanced → Reverse Proxy*: source `https://kanban.your-domain.tld`
+   port 443 → destination `http://localhost:<KANBAN_PORT>`. Under *Security → Certificate* request a
+   Let's Encrypt certificate for that hostname and assign it to the reverse-proxy entry.
+7. Register the MCP server in Claude Code with the public URL
    (`claude mcp add --transport http --scope user kanban https://kanban.your-domain.tld/mcp --header "Authorization: Bearer kb_…"`).
 
 The container runs with `BEHIND_PROXY=1`, which turns on secure cookies and trusts the proxy's
-`X-Forwarded-*` headers. Do not expose port 3000 directly to the internet; only the reverse proxy should
-reach it. API tokens are the only credential Claude holds, revoke them under **Claude / MCP** if a laptop
+`X-Forwarded-*` headers. Do not forward the app port on the router; only the reverse proxy should reach it. API tokens are the only credential Claude holds, revoke them under **Claude / MCP** if a laptop
 goes missing.
 
 ## Development

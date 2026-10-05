@@ -5,7 +5,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY src ./src
 COPY scripts ./scripts
-RUN mkdir -p /data && chown node:node /data
+# /data is normally a bind mount; docker-compose.yml sets the user via PUID/PGID so it can write there.
+RUN mkdir -p /data && chmod 777 /data
 USER node
 ENV HOST=0.0.0.0 PORT=3000 DATA_DIR=/data BEHIND_PROXY=1
 EXPOSE 3000

@@ -105,7 +105,15 @@ let db;
 export function openDb(file = path.join(config.dataDir, 'kanban.sqlite')) {
   if (db) return db;
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
-  db = new DatabaseSync(file);
+  try {
+    db = new DatabaseSync(file);
+  } catch (e) {
+    throw new Error(
+      `Cannot open database ${file}: ${e.message}. The process runs as uid ${process.getuid?.()} ` +
+        `and needs write access to ${path.dirname(file)} (in Docker: set PUID/PGID to the owner of the mounted data folder).`,
+      { cause: e },
+    );
+  }
   db.exec(SCHEMA);
   seed(db);
   return db;

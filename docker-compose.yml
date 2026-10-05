@@ -1,6 +1,14 @@
 # Synology NAS: Container Manager → Project → create from this file (or `docker compose up -d`).
+#
+# Put the values below into a `.env` file next to this compose file (see .env.example):
+#   PUID / PGID   – run the container as your NAS user so it can write the mounted ./data folder.
+#                   Find them with `id` in an SSH session on the NAS (e.g. PUID=1026, PGID=100).
+#                   Default 1000:1000 fits a plain Linux/Mac box, NOT a Synology.
+#   KANBAN_PORT   – port on the NAS (left side of the mapping). The app inside always listens on 3000.
+#   GITHUB_TOKEN  – optional, for PR/issue badges on private repos.
+#
 # Then DSM → Control Panel → Login Portal → Advanced → Reverse Proxy:
-#   source https://kanban.your-domain.tld:443  →  destination http://localhost:3000
+#   source https://kanban.your-domain.tld:443  →  destination http://localhost:${KANBAN_PORT}
 # and issue a Let's Encrypt certificate for that hostname under Security → Certificate.
 services:
   kanban:
@@ -8,13 +16,13 @@ services:
     image: s2ok-kanban
     container_name: s2ok-kanban
     restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
     ports:
-      - "3000:3000"
+      - "${KANBAN_PORT:-3000}:3000"
     volumes:
       - ./data:/data
     environment:
       BEHIND_PROXY: "1"
       # Created on first start if the database is empty; passwords are printed to the container log once.
-      BOOTSTRAP_USERS: "sebastian:admin,sina"
-      # Optional: GitHub personal access token so cards show open / merged / closed and tasks close on merge.
-      GITHUB_TOKEN: ""
+      BOOTSTRAP_USERS: "${BOOTSTRAP_USERS:-sebastian:admin,sina}"
+      GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
